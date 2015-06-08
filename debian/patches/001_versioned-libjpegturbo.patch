@@ -1,0 +1,21 @@
+Description: Generate proper version info for libjpeg-turbo
+Author: Mike Gabriel <mike.gabriel@das-netzwerkteam.de>
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -3,8 +3,14 @@
+ include_HEADERS = jerror.h jmorecfg.h jpeglib.h
+ 
+ if WITH_TURBOJPEG
++
++TURBOJPEG_MAJOR_VERSION=$(shell echo ${VERSION} | cut -d"." -f1)
++TURBOJPEG_MINOR_VERSION=$(shell echo ${VERSION} | cut -d"." -f2)
++TURBOJPEG_MICRO_VERSION=$(shell echo ${VERSION} | cut -d"." -f3)
++TURBOJPEG_VERSION_INFO=$(shell expr ${TURBOJPEG_MAJOR_VERSION} + ${TURBOJPEG_MINOR_VERSION}):${TURBOJPEG_MICRO_VERSION}:${TURBOJPEG_MINOR_VERSION}
++
+ lib_LTLIBRARIES += libturbojpeg.la
+-libturbojpeg_la_LDFLAGS = -version-info 0:0 -no-undefined
++libturbojpeg_la_LDFLAGS = -version-info ${TURBOJPEG_VERSION_INFO} -no-undefined
+ include_HEADERS += turbojpeg.h
+ endif
+ 
+

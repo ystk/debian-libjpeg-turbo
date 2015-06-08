@@ -1,0 +1,98 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# To enable all, uncomment following line
+# export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic -ffloat-store
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+# for architecture dependent variables and changelog vars
+vafilt = $(subst $(2)=,,$(filter $(2)=%,$(1)))
+
+DPKG_VARS               := $(shell dpkg-architecture)
+DEB_BUILD_GNU_TYPE	?= $(call vafilt,$(DPKG_VARS),DEB_BUILD_GNU_TYPE)
+DEB_HOST_GNU_TYPE	?= $(call vafilt,$(DPKG_VARS),DEB_HOST_GNU_TYPE)
+DEB_HOST_MULTIARCH	?= $(call vafilt,$(DPKG_VARS),DEB_HOST_MULTIARCH)
+
+CFLAGS ?= $(shell dpkg-buildflags --get CFLAGS)
+CPPFLAGS ?= $(shell dpkg-buildflags --get CPPFLAGS)
+LDFLAGS ?= $(shell dpkg-buildflags --get LDFLAGS)
+ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -Wall
+endif
+
+ifeq ($(DEB_HOST_GNU_TYPE),$(DEB_BUILD_GNU_TYPE))
+CC = gcc
+else
+CC = $(DEB_HOST_GNU_TYPE)-gcc
+endif
+
+%:
+	dh $@ --parallel --with autoreconf
+
+ifeq ($(DEB_HOST_GNU_TYPE),x86_64-linux-gnux32)
+override_dh_auto_configure:
+	dh_auto_configure -- --without-simd
+endif
+
+override_dh_auto_build:
+	dh_auto_build -- V=1
+	$(MAKE) -C debian/extra CC=$(CC) CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" CPPFLAGS="$(CPPFLAGS)" V=1
+
+override_dh_auto_clean:
+	$(MAKE) -C debian/extra clean
+	if [ -e Makefile ]; then $(MAKE) testclean; fi
+	dh_auto_clean
+	rm -f simd/jsimdcfg.inc
+
+override_dh_auto_install:
+	dh_auto_install
+	# Install extra utilities
+	$(MAKE) -C debian/extra install prefix=/usr DESTDIR=$(CURDIR)/debian/tmp
+	# Install manual page for tjbench.1
+	install -m 644 debian/tjbench.1 $(CURDIR)/debian/tmp/usr/share/man/man1/
+	# Fix jconfig.h for MultiArch
+	rm -f debian/tmp/usr/include/jconfig.h
+	mkdir -p debian/tmp/usr/include/$(DEB_HOST_MULTIARCH)
+	sed -e "s/#\(undef\|define\) HAVE_\(LOCALE\|\(STD\(DEF\|LIB\)\)\)_H 1//g" \
+		jconfig.h > debian/tmp/usr/include/$(DEB_HOST_MULTIARCH)/jconfig.h
+	mkdir -p debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig/
+	sed -e "s/@VERSION@/$(VERSION)/;s/@DEB_HOST_MULTIARCH@/$(DEB_HOST_MULTIARCH)/" \
+		debian/libjpeg.pc.in \
+		> debian/tmp/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig/libjpeg.pc
+
+override_dh_install:
+	dh_install -X.la -X/usr/share/doc --fail-missing
+
+override_dh_installchangelogs:
+	dh_installchangelogs -plibjpeg62-turbo-dev change.log
+	dh_installchangelogs -Nlibjpeg62-turbo-dev
+
+override_dh_strip:
+	dh_strip -plibjpeg-turbo-progs --dbg-package=libjpeg-turbo-progs-dbg
+	dh_strip -plibjpeg62-turbo --dbg-package=libjpeg62-turbo-dbg
+	dh_strip -plibturbojpeg1 --dbg-package=libturbojpeg1-dbg
+
+deb_source := $(shell dpkg-parsechangelog | sed -n 's/^Source: //p')
+svn_rev := $(shell dpkg-parsechangelog | sed -rne 's,^Version: .*[+~]svn([0-9]+).*,\1,p')
+upstream_version := $(shell dpkg-parsechangelog | sed -rne 's,^Version: ([^-]+).*,\1,p')
+
+.PHONY: get-svn-source
+get-svn-source:
+	rm -rf $(deb_source)-$(upstream_version).orig
+	rm -f $(deb_source)-$(upstream_version).orig.tar.gz
+	svn -q export -r $(svn_rev) https://libjpeg-turbo.svn.sourceforge.net/svnroot/libjpeg-turbo/trunk \
+		$(deb_source)-$(upstream_version).orig
+	GZIP=--best tar -cz --owner root --group root --mode a+rX \
+	     -f $(deb_source)_$(upstream_version).orig.tar.gz \
+	     $(deb_source)-$(upstream_version).orig
+	rm -r $(deb_source)-$(upstream_version).orig
+
+.PHONY: get-orig-source
+get-orig-source:
+	wget --trust-server-name http://sourceforge.net/projects/$(deb_source)/files/$(upstream_version)/$(deb_source)-$(upstream_version).tar.gz/download
+	mv $(deb_source)-$(upstream_version).tar.gz $(upstream_version)/$(deb_source)_$(upstream_version).orig.tar.gz
+
