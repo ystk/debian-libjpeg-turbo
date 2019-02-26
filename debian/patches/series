@@ -1,2 +1,5 @@
 001_versioned-libjpegturbo.patch
 CVE-2014-9092.patch
+CVE-2018-11212.patch
+CVE-2018-11213+11214.patch
+CVE-2018-1152.patch
